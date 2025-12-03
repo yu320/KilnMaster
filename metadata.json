@@ -1,0 +1,8 @@
+{
+  "name": "KilnMaster AI",
+  "description": "智能陶藝電窯燒製助手。估算燒製時間，追蹤即時進度，並利用 AI 根據歷史數據校正時間。",
+  "permissions": [
+    "notifications"
+  ],
+  "requestFramePermissions": []
+}
