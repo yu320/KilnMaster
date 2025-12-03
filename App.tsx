@@ -283,7 +283,7 @@ function App() {
       </main>
 
       <footer className="py-6 text-center text-stone-400 dark:text-stone-600 text-xs transition-colors">
-        &copy; {new Date().getFullYear()} KilnMaster AI. 資料同步至 Google Sheets.
+        &copy; {new Date().getFullYear()} Youzih.KilnMaster AI. 資料同步至 Google.
       </footer>
     </div>
   );

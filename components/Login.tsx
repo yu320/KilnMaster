@@ -138,7 +138,8 @@ const Login: React.FC<Props> = ({ onLogin, isDarkMode = false, onToggleDarkMode 
       </div>
       <div className="mt-8 text-stone-400 dark:text-stone-500 text-xs text-center max-w-sm">
         資料將安全儲存於您的 Google 試算表中。<br/>
-        請確保 Apps Script 已部署為「任何人皆可存取」。
+        KilnMaster AI 並不會收集或存取您的個人資料。
+
       </div>
     </div>
   );
