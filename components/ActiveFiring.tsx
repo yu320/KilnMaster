@@ -1,7 +1,6 @@
-
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { FiringSchedule, calculateSchedulePoints, FiringLog } from '../types';
-import { Bell, BellOff, XCircle, CheckCircle, Thermometer, Settings, Plus, Trash2 } from 'lucide-react';
+import { Bell, BellOff, XCircle, CheckCircle, Thermometer, Settings, Plus, Trash2, Zap, ZapOff } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 
 interface Props {
@@ -19,6 +18,10 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   const [notes, setNotes] = useState('');
   const [outcome, setOutcome] = useState<FiringLog['outcome']>('perfect');
   
+  // Wake Lock State (螢幕恆亮狀態)
+  const [wakeLockActive, setWakeLockActive] = useState(false);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
   // Notification Settings
   const [showSettings, setShowSettings] = useState(false);
   const [thresholds, setThresholds] = useState<number[]>([50, 75, 90]);
@@ -30,6 +33,44 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   
   const totalEstimatedMs = schedule.estimatedDurationMinutes * 60 * 1000;
   
+  // --- Wake Lock Logic (新增功能: 防止螢幕休眠) ---
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+          setWakeLockActive(true);
+          console.log('Wake Lock is active');
+          
+          wakeLockRef.current.addEventListener('release', () => {
+            setWakeLockActive(false);
+            console.log('Wake Lock released');
+          });
+        }
+      } catch (err) {
+        console.error('Wake Lock request failed:', err);
+      }
+    };
+
+    requestWakeLock();
+
+    const handleVisibilityChange = () => {
+      if (wakeLockRef.current !== null && document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(console.error);
+      }
+    };
+  }, []);
+
+  // --- Temperature Calculation Logic ---
   const getCurrentTemp = (elapsedMs: number) => {
     const elapsedMinutes = elapsedMs / 60000;
     let currentT = 25;
@@ -225,7 +266,18 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
 
         <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-stone-800 dark:text-stone-100">{schedule.name}</h2>
+            <h2 className="text-2xl font-bold text-stone-800 dark:text-stone-100 flex items-center gap-2">
+              {schedule.name}
+              {wakeLockActive ? (
+                <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 px-2 py-1 rounded-full flex items-center gap-1 font-normal">
+                  <Zap className="w-3 h-3" /> 螢幕恆亮中
+                </span>
+              ) : (
+                <span className="text-xs bg-stone-100 dark:bg-stone-800 text-stone-500 px-2 py-1 rounded-full flex items-center gap-1 font-normal" title="無法阻止螢幕休眠">
+                  <ZapOff className="w-3 h-3" /> 一般模式
+                </span>
+              )}
+            </h2>
             <p className="text-stone-500 dark:text-stone-400">開始時間：{new Date(startTime).toLocaleTimeString()}</p>
           </div>
           

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, Flame, History, LogOut, RefreshCcw, Moon, Sun } from 'lucide-react';
 import ScheduleEditor from './components/ScheduleEditor';
 import ActiveFiring from './components/ActiveFiring';
-import HistoryLogView from './components/HistoryLog';
+import { calculateLocalCalibration } from './services/calibrationService';
 import Login from './components/Login';
 import { FiringSchedule, FiringLog, CalibrationResult, calculateTheoreticalDuration } from './types';
 import { loginToSheet, fetchSheetData, saveLogToSheet, saveCalibrationToSheet } from './services/sheetService';

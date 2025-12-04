@@ -20,7 +20,7 @@
 // 設定工作表名稱
 const SHEET_LOGS = 'Logs';
 const SHEET_CALIBRATION = 'Calibration';
-const SHEET_USERS = 'Users'; // 儲存帳號密碼
+const SHEET_USERS = 'Users';
 
 // 初始化試算表 (如果第一次使用)
 function setupSpreadsheet() {
@@ -49,12 +49,13 @@ function setupSpreadsheet() {
     calSheet.appendRow([1.0, '初始設定', new Date()]); // 預設值
   }
 
-  // 3. 設定 Users 工作表 (簡單範例)
+  // 3. 設定 Users 工作表
   let userSheet = ss.getSheetByName(SHEET_USERS);
   if (!userSheet) {
     userSheet = ss.insertSheet(SHEET_USERS);
-    userSheet.appendRow(['Username', 'Password']);
-    userSheet.appendRow(['admin', 'admin123']); // 預設帳號
+    userSheet.appendRow(['Username', 'PasswordHash']); // 改為儲存 Hash
+    // 預設 admin/admin123 的 SHA-256 Hash
+    userSheet.appendRow(['admin', 'a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3']);
   }
 }
 
@@ -64,10 +65,14 @@ function doPost(e) {
     const action = data.action;
 
     if (action === 'login') {
+      // 這裡接收的 password 已經是前端 Hash 過的字串
       return handleLogin(data.username, data.password);
     }
     
     if (action === 'saveLog') {
+      if (!isValidLog(data.payload)) {
+        return responseJSON({ status: 'error', message: 'Invalid log data' });
+      }
       return saveLog(data.payload);
     }
 
@@ -84,23 +89,21 @@ function doPost(e) {
 
 function doGet(e) {
   const action = e.parameter.action;
-  
   if (action === 'getData') {
     return getCloudData();
   }
-  
   return responseJSON({ status: 'success', message: 'KilnMaster AI API is running' });
 }
 
 // --- Handlers ---
 
-function handleLogin(username, password) {
+function handleLogin(username, passwordHash) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
   
-  // 跳過標題列 (i=1)
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] == username && data[i][1] == password) {
+    // 直接比對 Hash 值
+    if (data[i][0] == username && data[i][1] == passwordHash) {
       return responseJSON({ status: 'success' });
     }
   }
@@ -112,63 +115,54 @@ function getCloudData() {
   const logsSheet = ss.getSheetByName(SHEET_LOGS);
   const calSheet = ss.getSheetByName(SHEET_CALIBRATION);
 
-  // 讀取 Logs
   const logsData = logsSheet.getDataRange().getValues();
-  const headers = logsData[0]; // 第一列是標題
+  const headers = logsData[0];
   const logs = [];
-  
-  // 建立標題索引對照表
   const colMap = {};
   headers.forEach((h, i) => colMap[h] = i);
 
-  // 從第二列開始讀取數據
   for (let i = 1; i < logsData.length; i++) {
     const row = logsData[i];
-    logs.push({
-      id: row[colMap['ID']],
-      scheduleName: row[colMap['Schedule Name']],
-      date: row[colMap['Date']],
-      predictedDuration: Number(row[colMap['Predicted Duration']]),
-      theoreticalDuration: colMap['Theoretical Duration'] !== undefined ? Number(row[colMap['Theoretical Duration']]) : null,
-      actualDuration: Number(row[colMap['Actual Duration']]),
-      clayWeight: colMap['Clay Weight'] !== undefined ? Number(row[colMap['Clay Weight']]) : 0,
-      outcome: row[colMap['Outcome']],
-      notes: row[colMap['Notes']]
-    });
+    // 簡單防呆：確保日期存在
+    if (row[colMap['Date']]) {
+      logs.push({
+        id: row[colMap['ID']],
+        scheduleName: row[colMap['Schedule Name']],
+        date: row[colMap['Date']],
+        predictedDuration: Number(row[colMap['Predicted Duration']]),
+        theoreticalDuration: colMap['Theoretical Duration'] !== undefined ? Number(row[colMap['Theoretical Duration']]) : null,
+        actualDuration: Number(row[colMap['Actual Duration']]),
+        clayWeight: colMap['Clay Weight'] !== undefined ? Number(row[colMap['Clay Weight']]) : 0,
+        outcome: row[colMap['Outcome']],
+        notes: row[colMap['Notes']]
+      });
+    }
   }
 
-  // 讀取 Calibration (只讀取最後一列)
   const calData = calSheet.getDataRange().getValues();
-  const lastCal = calData[calData.length - 1];
-  const calibration = {
-    factor: Number(lastCal[0]),
-    advice: lastCal[1]
-  };
-
+  const lastCal = calData.length > 1 ? calData[calData.length - 1] : [1.0, 'No Data'];
+  
   return responseJSON({ 
     status: 'success', 
     data: { 
       logs: logs,
-      calibration: calibration
+      calibration: {
+        factor: Number(lastCal[0]),
+        advice: lastCal[1]
+      }
     }
   });
 }
 
 function saveLog(log) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOGS);
+  setupSpreadsheet(); // 確保欄位同步
   
-  // 確保欄位存在 (自動修復)
-  setupSpreadsheet();
-  
-  // 取得目前的 headers 以決定寫入順序
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const colMap = {};
   headers.forEach((h, i) => colMap[h] = i);
 
-  // 準備空陣列，長度等於欄位數
   const newRow = new Array(headers.length).fill('');
-
-  // 填入數據
   newRow[colMap['ID']] = log.id;
   newRow[colMap['Schedule Name']] = log.scheduleName;
   newRow[colMap['Date']] = log.date;
@@ -190,6 +184,10 @@ function saveCalibration(cal) {
 }
 
 // --- Helpers ---
+
+function isValidLog(log) {
+  return log && log.scheduleName && log.date && typeof log.actualDuration === 'number';
+}
 
 function responseJSON(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
