@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MessageSquare, Save, CheckCircle, AlertCircle, Plus, Trash2, Flame } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext'; // 路徑指向 contexts
 import { saveTemplate } from '../services/sheetService';
 
 const Settings: React.FC = () => {
@@ -50,16 +50,18 @@ const Settings: React.FC = () => {
       setTemplateStatus('success');
       setTemplateName('');
       setSegments([{ temp: 0, time: 0 }]);
+      alert('模板已成功傳送至 Google Sheet！');
       setTimeout(() => setTemplateStatus('idle'), 3000);
     } else {
       setTemplateStatus('error');
+      alert('儲存失敗，請檢查網路或 App Script 部署。');
     }
   };
 
   return (
     <div className="max-w-3xl mx-auto space-y-8 pb-10">
       
-      {/* 區塊 1: 通知設定 (保留原有功能) */}
+      {/* 區塊 1: 通知設定 */}
       <div className="bg-white dark:bg-stone-900 rounded-xl shadow-sm border border-stone-200 dark:border-stone-800 p-6 transition-colors">
         <h2 className="text-xl font-bold text-stone-800 dark:text-stone-100 mb-6 flex items-center gap-2">
           <MessageSquare className="w-6 h-6 text-clay-500" />
@@ -97,7 +99,7 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
-      {/* 區塊 2: 新增模板 (新功能) */}
+      {/* 區塊 2: 新增模板 */}
       <div className="bg-white dark:bg-stone-900 rounded-xl shadow-sm border border-stone-200 dark:border-stone-800 p-6 transition-colors">
         <h2 className="text-xl font-bold text-stone-800 dark:text-stone-100 mb-6 flex items-center gap-2">
           <Flame className="w-6 h-6 text-orange-600" />
@@ -117,7 +119,7 @@ const Settings: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-bold text-stone-700 dark:text-stone-300 mb-2">溫控行程</label>
+            <label className="block text-sm font-bold text-stone-700 dark:text-stone-300 mb-2">溫控行程 (溫度/分鐘)</label>
             <div className="space-y-3">
               {segments.map((seg, index) => (
                 <div key={index} className="flex gap-2 items-center bg-stone-50 dark:bg-stone-800 p-2 rounded-lg border border-stone-100 dark:border-stone-700">

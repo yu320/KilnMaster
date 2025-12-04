@@ -35,7 +35,7 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   
   const totalEstimatedMs = schedule.estimatedDurationMinutes * 60 * 1000;
   
-  // 取得 Script URL 用於發送 Discord (假設儲存在 localStorage)
+  // 取得 Script URL 用於發送 Discord
   const scriptUrl = localStorage.getItem('kiln_script_url') || '';
   
   // --- Wake Lock Logic ---
@@ -114,25 +114,19 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
       const remainingMs = totalEstimatedMs - diff;
       const fifteenMinsMs = 15 * 60 * 1000;
 
-      // 1. 倒數 15 分鐘通知
       if (remainingMs > 0 && remainingMs <= fifteenMinsMs && !fired15MinRef.current) {
          const msg = `🔥 KilnMaster 提醒：${schedule.name} 燒製即將完成（約剩餘 15 分鐘）。`;
-         
          if (notificationsEnabled) new Notification("KilnMaster 通知", { body: msg });
          if (discordUrl) sendDiscordMessage(scriptUrl, discordUrl, msg);
-         
          fired15MinRef.current = true;
       }
 
-      // 2. 進度百分比通知
       thresholds.forEach(t => {
           if (currentProgress >= t && !firedThresholdsRef.current.has(t)) {
               const temp = getCurrentTemp(diff);
               const msg = `🌡️ KilnMaster 進度：${schedule.name} 已達 ${t}% (目前溫度約 ${temp}°C)`;
-              
               if (notificationsEnabled) new Notification("KilnMaster 進度通知", { body: msg });
               if (discordUrl) sendDiscordMessage(scriptUrl, discordUrl, msg);
-              
               firedThresholdsRef.current.add(t);
           }
       });
@@ -203,7 +197,6 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   };
 
   const handleComplete = () => {
-    // 燒製完成通知
     const msg = `✅ KilnMaster：${schedule.name} 燒製已紀錄完成。結果：${outcome}`;
     if (discordUrl) sendDiscordMessage(scriptUrl, discordUrl, msg);
 
@@ -284,7 +277,6 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   return (
     <div className="flex flex-col items-center justify-center py-6 px-4 max-w-4xl mx-auto w-full">
       <div className="bg-white dark:bg-stone-900 rounded-3xl shadow-xl w-full p-6 md:p-8 relative overflow-hidden transition-colors">
-        {/* Background Pulse Animation */}
         <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-clay-300 via-clay-500 to-clay-300 animate-pulse`} />
 
         <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
@@ -321,14 +313,12 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
               {notificationsEnabled ? <Bell className="w-6 h-6" /> : <BellOff className="w-6 h-6" />}
             </button>
 
-            {/* Settings Popover */}
             {showSettings && (
                 <div className="absolute top-12 right-0 w-80 bg-white dark:bg-stone-800 rounded-xl shadow-xl border border-stone-100 dark:border-stone-700 p-4 z-20">
                     <h3 className="text-sm font-bold text-stone-800 dark:text-stone-100 mb-3 flex items-center gap-2">
                         <Bell className="w-4 h-4" /> 通知設定
                     </h3>
                     
-                    {/* Discord Input */}
                     <div className="mb-4 pb-4 border-b border-stone-100 dark:border-stone-700">
                         <label className="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase mb-1 flex items-center gap-1">
                             <MessageSquare className="w-3 h-3" /> Discord Webhook
@@ -340,7 +330,6 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
                             placeholder="https://discord.com/api/webhooks/..."
                             className="w-full p-2 text-xs border border-stone-200 dark:border-stone-600 rounded bg-stone-50 dark:bg-stone-900 text-stone-800 dark:text-stone-200"
                         />
-                        <p className="text-[10px] text-stone-400 mt-1">貼上 Webhook 網址以接收即時通知</p>
                     </div>
 
                     <div className="flex gap-2 mb-4">
@@ -382,7 +371,6 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            {/* Left: Progress Circle */}
             <div className="flex flex-col items-center justify-center">
                 <div className="relative w-56 h-56 mb-6">
                     <svg className="w-full h-full transform -rotate-90">
@@ -420,8 +408,8 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
                 </div>
             </div>
 
-            {/* Right: Live Chart */}
-            <div className="h-64 bg-stone-50 dark:bg-stone-800 rounded-xl border border-stone-200 dark:border-stone-700 p-2 transition-colors">
+            {/* 修改這裡：加入 inline style height 解決報錯 */}
+            <div className="h-64 bg-stone-50 dark:bg-stone-800 rounded-xl border border-stone-200 dark:border-stone-700 p-2 transition-colors" style={{ height: '256px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 5, left: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
@@ -478,7 +466,6 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
             </div>
         </div>
 
-        {/* Controls */}
         <div className="grid grid-cols-2 gap-4">
           <button
             onClick={() => {

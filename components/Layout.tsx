@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { Flame, History, LayoutDashboard, LogOut, RefreshCcw, Moon, Sun } from 'lucide-react';
+import { Flame, History, LayoutDashboard, LogOut, RefreshCcw, Moon, Sun, Settings } from 'lucide-react'; // [新增] 引入 Settings 圖示
 import { useAuth } from '../contexts/AuthContext';
 import { useKiln } from '../contexts/KilnContext';
 
@@ -27,7 +27,6 @@ const Layout: React.FC<Props> = ({ isDarkMode, toggleDarkMode }) => {
       : 'text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-200'}
   `;
 
-  // 監控頁面特殊樣式 (如果有燒製中)
   const monitorClass = ({ isActive }: { isActive: boolean }) => `
     flex-1 py-3 rounded-lg font-medium text-sm flex justify-center items-center gap-2 transition-all
     ${isActive 
@@ -52,22 +51,32 @@ const Layout: React.FC<Props> = ({ isDarkMode, toggleDarkMode }) => {
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden md:block">
+          <div className="flex items-center gap-3">
+            <div className="text-right hidden md:block mr-4">
               <div className="text-xs text-stone-500 uppercase tracking-widest">目前校正參數</div>
               <div className="text-xl font-mono text-clay-400 font-bold">
                 {isLoadingData ? '...' : `${calibration.factor.toFixed(3)}x`}
               </div>
             </div>
             
-            <button onClick={toggleDarkMode} className="p-2 text-stone-400 hover:text-yellow-400 dark:hover:text-blue-300 transition-colors">
+            <button onClick={toggleDarkMode} className="p-2 text-stone-400 hover:text-yellow-400 dark:hover:text-blue-300 transition-colors bg-stone-800/50 rounded-full">
               {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
             </button>
 
-            <button onClick={refreshData} className="p-2 text-stone-400 hover:text-white transition-colors">
+            {/* [新增] 設定按鈕 */}
+            <button 
+              onClick={() => navigate('/settings')} 
+              className="p-2 text-stone-400 hover:text-white transition-colors bg-stone-800/50 rounded-full"
+              title="系統設定"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+
+            <button onClick={refreshData} className="p-2 text-stone-400 hover:text-white transition-colors bg-stone-800/50 rounded-full">
               <RefreshCcw className={`w-5 h-5 ${isLoadingData ? 'animate-spin' : ''}`} />
             </button>
-            <button onClick={handleLogout} className="p-2 text-stone-400 hover:text-red-400 transition-colors">
+            
+            <button onClick={handleLogout} className="p-2 text-stone-400 hover:text-red-400 transition-colors bg-stone-800/50 rounded-full ml-2">
               <LogOut className="w-5 h-5" />
             </button>
           </div>
@@ -76,7 +85,7 @@ const Layout: React.FC<Props> = ({ isDarkMode, toggleDarkMode }) => {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 -mt-10 relative z-20 pb-12">
-        {/* Navigation Tabs (Using Router NavLink) */}
+        {/* Navigation Tabs */}
         <nav className="bg-white dark:bg-stone-900 rounded-xl shadow-sm border border-stone-200 dark:border-stone-800 p-1.5 flex gap-1 mb-6 transition-colors">
           <NavLink to="/" className={navClass} end>
              <LayoutDashboard className="w-4 h-4" /> 排程與燒製

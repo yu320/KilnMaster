@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { FiringLog, CalibrationResult, outcomeMap } from '../types';
 import { calculateLocalCalibration } from '../services/calibrationService';
-// [New] Import Brush
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Brush } from 'recharts';
 import { Calculator, History as HistoryIcon, ArrowUpRight, ArrowDownRight, Download } from 'lucide-react';
 
@@ -77,7 +76,7 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
     name: new Date(log.date).toLocaleDateString(undefined, {month:'short', day:'numeric'}),
     predicted: Math.round(log.predictedDuration / 60 * 10) / 10,
     actual: Math.round(log.actualDuration / 60 * 10) / 10,
-  })).slice(-20); // 顯示最近 20 筆，因為現在有 Brush 可以縮放
+  })).slice(-20); 
 
   const chartGridColor = isDarkMode ? '#44403c' : '#e5e7eb';
   const chartAxisColor = isDarkMode ? '#a8a29e' : '#78716c';
@@ -118,7 +117,8 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
 
       {/* Chart */}
       {logs.length > 0 ? (
-        <div className="bg-white dark:bg-stone-900 p-6 rounded-xl border border-stone-200 dark:border-stone-800 shadow-sm h-[350px] transition-colors">
+        // 修改這裡：加入 inline style height
+        <div className="bg-white dark:bg-stone-900 p-6 rounded-xl border border-stone-200 dark:border-stone-800 shadow-sm h-[350px] transition-colors" style={{ height: '350px' }}>
           <h3 className="text-lg font-bold text-stone-800 dark:text-stone-100 mb-4">預估 vs 實際時間 (小時)</h3>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -138,7 +138,6 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
               <Legend wrapperStyle={{ color: isDarkMode ? '#d6d3d1' : '#57534e' }} />
               <Line type="monotone" dataKey="predicted" stroke="#a8a29e" strokeWidth={2} name="預估時間" />
               <Line type="monotone" dataKey="actual" stroke="#b0776b" strokeWidth={2} name="實際時間" />
-              {/* [New] Brush Component */}
               <Brush dataKey="name" height={30} stroke="#b0776b" fill={isDarkMode ? "#292524" : "#f5f5f4"} />
             </LineChart>
           </ResponsiveContainer>
@@ -151,7 +150,6 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
 
       {/* List */}
       <div className="space-y-4">
-        {/* ... (下方的列表代碼保持不變，可直接使用原有的) ... */}
          <div className="flex justify-between items-center">
             <h3 className="text-lg font-bold text-stone-800 dark:text-stone-100 flex items-center gap-2">
               <HistoryIcon className="w-5 h-5" /> 近期紀錄
@@ -163,7 +161,6 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
         
         {logs.length === 0 && <p className="text-stone-500 italic">尚無歷史紀錄。</p>}
         {logs.slice().reverse().map(log => {
-           // ... (List Item implementation same as before)
            const diff = log.actualDuration - log.predictedDuration;
            const diffPercent = ((diff / log.predictedDuration) * 100).toFixed(1);
            const isSlower = diff > 0;
