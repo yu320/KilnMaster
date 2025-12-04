@@ -1,35 +1,127 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Flame, History, LogOut, RefreshCcw, Moon, Sun } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import Login from './components/Login';
 import ScheduleEditor from './components/ScheduleEditor';
 import ActiveFiring from './components/ActiveFiring';
-import { calculateLocalCalibration } from './services/calibrationService';
-import Login from './components/Login';
-import { FiringSchedule, FiringLog, CalibrationResult, calculateTheoreticalDuration } from './types';
-import { loginToSheet, fetchSheetData, saveLogToSheet, saveCalibrationToSheet } from './services/sheetService';
-import { calculateLocalCalibration } from './services/geminiService';
+import HistoryLogView from './components/HistoryLog';
+import Settings from './components/Settings';
+import Layout from './components/Layout';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { KilnProvider, useKiln } from './contexts/KilnContext';
+import { FiringLog, calculateTheoreticalDuration } from './types';
+
+// 保護路由元件：未登入時顯示登入畫面，已登入顯示子元件
+const ProtectedRoute: React.FC<{ children: React.ReactNode, isDarkMode: boolean, toggleDarkMode: () => void }> = ({ children, isDarkMode, toggleDarkMode }) => {
+  const { isAuthenticated, login } = useAuth();
+  
+  if (!isAuthenticated) {
+    return (
+      <Login 
+        onLogin={login} 
+        isDarkMode={isDarkMode} 
+        onToggleDarkMode={toggleDarkMode} 
+      />
+    );
+  }
+  return <>{children}</>;
+};
+
+// 燒製監控頁面 Wrapper (連接 Context 與 Component)
+const MonitorPage = ({ isDarkMode }: { isDarkMode: boolean }) => {
+  const { activeSchedule, startTime, cancelFiring, finishFiring, addLog } = useKiln();
+  const navigate = useNavigate();
+
+  const handleFinish = async (result: Pick<FiringLog, 'actualDuration' | 'outcome' | 'notes'>) => {
+    if (!activeSchedule) return;
+
+    const newLog: FiringLog = {
+      id: crypto.randomUUID(),
+      scheduleName: activeSchedule.name,
+      date: new Date().toISOString(),
+      predictedDuration: activeSchedule.estimatedDurationMinutes,
+      actualDuration: result.actualDuration,
+      clayWeight: activeSchedule.clayWeight,
+      notes: result.notes,
+      outcome: result.outcome,
+      // 計算理論時間作為參考
+      theoreticalDuration: calculateTheoreticalDuration(activeSchedule.segments)
+    };
+
+    // 新增紀錄並同步到雲端
+    await addLog(newLog);
+    
+    // 清除燒製狀態並導向歷史頁面
+    finishFiring();
+    navigate('/history');
+  };
+
+  // 若無進行中的燒製，顯示提示並導回首頁或顯示訊息
+  if (!activeSchedule || !startTime) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center p-6 border-2 border-dashed border-stone-200 dark:border-stone-800 rounded-xl m-4">
+        <p className="text-stone-500 dark:text-stone-400 mb-4">目前沒有進行中的燒製排程。</p>
+        <button 
+          onClick={() => navigate('/')}
+          className="px-4 py-2 bg-clay-600 text-white rounded-lg hover:bg-clay-700 transition-colors"
+        >
+          前往建立排程
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ActiveFiring 
+      schedule={activeSchedule} 
+      startTime={startTime} 
+      onFinish={handleFinish}
+      onCancel={() => { 
+        cancelFiring(); 
+        navigate('/'); 
+      }}
+      isDarkMode={isDarkMode}
+    />
+  );
+};
+
+// 排程頁面 Wrapper
+const PlanPage = ({ isDarkMode }: { isDarkMode: boolean }) => {
+  const { startFiring, calibration } = useKiln();
+  const navigate = useNavigate();
+  
+  return (
+    <ScheduleEditor 
+      onStartFiring={(schedule) => {
+        startFiring(schedule);
+        navigate('/monitor');
+      }} 
+      calibrationFactor={calibration.factor}
+      isDarkMode={isDarkMode}
+    />
+  );
+};
+
+// 歷史頁面 Wrapper
+const HistoryPage = ({ isDarkMode }: { isDarkMode: boolean }) => {
+  const { logs, calibration, updateCalibration } = useKiln();
+  
+  return (
+    <HistoryLogView 
+      logs={logs} 
+      calibration={calibration} 
+      onUpdateCalibration={updateCalibration} 
+      isDarkMode={isDarkMode} 
+    />
+  );
+};
 
 function App() {
-  // --- Auth State ---
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [scriptUrl, setScriptUrl] = useState('');
-  const [username, setUsername] = useState('');
-  const [isLoadingData, setIsLoadingData] = useState(false);
-
-  // --- App State ---
-  const [activeTab, setActiveTab] = useState<'plan' | 'monitor' | 'history'>('plan');
-  
-  const [logs, setLogs] = useState<FiringLog[]>([]);
-  const [calibration, setCalibration] = useState<CalibrationResult>({ factor: 1.0, advice: '' });
-
-  // Active Firing State
-  const [activeSchedule, setActiveSchedule] = useState<FiringSchedule | null>(null);
-  const [startTime, setStartTime] = useState<number | null>(null);
-
-  // --- Dark Mode State ---
+  // 初始化 Dark Mode (讀取 localStorage)
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('theme') === 'dark';
   });
 
+  // 監聽 Dark Mode 變更並套用至 HTML 標籤
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -42,250 +134,32 @@ function App() {
 
   const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 
-  // --- Auth & Data Loading ---
-  const handleLogin = async (url: string, user: string, pass: string) => {
-    const success = await loginToSheet(url, user, pass);
-    if (success) {
-      setScriptUrl(url);
-      setUsername(user);
-      setIsAuthenticated(true);
-      loadCloudData(url);
-    }
-    return success;
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setScriptUrl('');
-    setUsername('');
-    setLogs([]);
-    setCalibration({ factor: 1.0, advice: '' });
-  };
-
-  const loadCloudData = async (url: string) => {
-    setIsLoadingData(true);
-    const data = await fetchSheetData(url);
-    if (data) {
-      setLogs(data.logs);
-      
-      const localAnalysis = calculateLocalCalibration(data.logs);
-      
-      // Use DB factor if available, otherwise local calc
-      const finalFactor = data.calibration.factor || localAnalysis.factor;
-      
-      setCalibration({
-        factor: finalFactor,
-        advice: localAnalysis.advice // Recalculate advice text for display
-      });
-    }
-    setIsLoadingData(false);
-  };
-
-  // --- Handlers ---
-  const handleStartFiring = (schedule: FiringSchedule) => {
-    setActiveSchedule(schedule);
-    setStartTime(Date.now());
-    setActiveTab('monitor');
-  };
-
-  const handleFinishFiring = async (result: Pick<FiringLog, 'actualDuration' | 'outcome' | 'notes'>) => {
-    if (!activeSchedule) return;
-
-    // Calculate theoretical duration (pure physics, no calibration) for accurate future analysis
-    const theoreticalMinutes = calculateTheoreticalDuration(activeSchedule.segments);
-
-    const newLog: FiringLog = {
-      id: crypto.randomUUID(),
-      scheduleName: activeSchedule.name,
-      date: new Date().toISOString(),
-      predictedDuration: activeSchedule.estimatedDurationMinutes,
-      actualDuration: result.actualDuration,
-      clayWeight: activeSchedule.clayWeight,
-      notes: result.notes,
-      outcome: result.outcome
-    };
-
-    // Optimistic Update
-    const updatedLogs = [...logs, newLog];
-    setLogs(updatedLogs);
-    
-    // Save to Cloud
-    await saveLogToSheet(scriptUrl, newLog);
-
-    setActiveSchedule(null);
-    setStartTime(null);
-    setActiveTab('history');
-  };
-
-  const handleCancelFiring = () => {
-    setActiveSchedule(null);
-    setStartTime(null);
-    setActiveTab('plan');
-  };
-
-  const handleUpdateCalibration = async (result: CalibrationResult) => {
-    setCalibration(result);
-    await saveCalibrationToSheet(scriptUrl, result);
-  };
-
-  // --- Render ---
-  if (!isAuthenticated) {
-    return (
-      <div className={isDarkMode ? 'dark' : ''}>
-         <Login 
-           onLogin={handleLogin} 
-           isDarkMode={isDarkMode}
-           onToggleDarkMode={toggleDarkMode}
-         />
-      </div>
-    );
-  }
-
   return (
-    <div className={`min-h-screen bg-stone-100 dark:bg-stone-950 flex flex-col font-sans transition-colors duration-300 ${isDarkMode ? 'dark' : ''}`}>
-      {/* Header */}
-      <header className="bg-stone-900 dark:bg-black text-white pt-6 pb-16 px-6 shadow-lg relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-8 opacity-10">
-          <Flame className="w-64 h-64" />
-        </div>
-        <div className="max-w-5xl mx-auto flex justify-between items-center relative z-10">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-clay-100">KilnMaster AI</h1>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-stone-400 text-sm">智慧陶藝電窯助手</span>
-              <span className="bg-stone-800 dark:bg-stone-900 px-2 py-0.5 rounded text-xs text-stone-300 border border-stone-700">
-                User: {username}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden md:block">
-              <div className="text-xs text-stone-500 uppercase tracking-widest">目前校正參數</div>
-              <div className="text-xl font-mono text-clay-400 font-bold">
-                {isLoadingData ? '...' : `${calibration.factor.toFixed(3)}x`}
-              </div>
-            </div>
-            
-            {/* Dark Mode Toggle */}
-            <button
-              onClick={toggleDarkMode}
-              className="p-2 text-stone-400 hover:text-yellow-400 dark:hover:text-blue-300 transition-colors"
-              title={isDarkMode ? "切換亮色模式" : "切換深色模式"}
+    <BrowserRouter>
+      <AuthProvider>
+        <KilnProvider>
+          <Routes>
+            {/* 受保護的路由區域 */}
+            <Route 
+              path="/" 
+              element={
+                <ProtectedRoute isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode}>
+                  <Layout isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+                </ProtectedRoute>
+              }
             >
-              {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
-            </button>
+              <Route index element={<PlanPage isDarkMode={isDarkMode} />} />
+              <Route path="monitor" element={<MonitorPage isDarkMode={isDarkMode} />} />
+              <Route path="history" element={<HistoryPage isDarkMode={isDarkMode} />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
 
-            <button 
-              onClick={() => loadCloudData(scriptUrl)} 
-              className="p-2 text-stone-400 hover:text-white transition-colors"
-              title="重新整理數據"
-            >
-              <RefreshCcw className={`w-5 h-5 ${isLoadingData ? 'animate-spin' : ''}`} />
-            </button>
-            <button 
-              onClick={handleLogout} 
-              className="p-2 text-stone-400 hover:text-red-400 transition-colors"
-              title="登出"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 -mt-10 relative z-20 pb-12">
-        {/* Navigation Tabs */}
-        <nav className="bg-white dark:bg-stone-900 rounded-xl shadow-sm border border-stone-200 dark:border-stone-800 p-1.5 flex gap-1 mb-6 transition-colors">
-          <button 
-            onClick={() => setActiveTab('plan')}
-            disabled={!!activeSchedule}
-            title={!!activeSchedule ? "燒製進行中，請先結束或中止當前燒製" : ""}
-            className={`flex-1 py-3 rounded-lg font-medium text-sm flex justify-center items-center gap-2 transition-all ${
-              activeTab === 'plan' 
-                ? 'bg-stone-800 dark:bg-stone-700 text-white shadow-md' 
-                : 'text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-200 disabled:opacity-30 disabled:cursor-not-allowed'
-            }`}
-          >
-            <LayoutDashboard className="w-4 h-4" /> 排程與燒製
-          </button>
-          <button 
-            onClick={() => setActiveTab('monitor')}
-            disabled={!activeSchedule}
-            className={`flex-1 py-3 rounded-lg font-medium text-sm flex justify-center items-center gap-2 transition-all ${
-              activeTab === 'monitor' 
-                ? 'bg-clay-600 text-white shadow-md' 
-                : 'text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-200 disabled:opacity-30 disabled:cursor-not-allowed'
-            }`}
-          >
-            <Flame className="w-4 h-4" /> 監控進度
-            {activeSchedule && <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse ml-1"></span>}
-          </button>
-          <button 
-            onClick={() => setActiveTab('history')}
-            className={`flex-1 py-3 rounded-lg font-medium text-sm flex justify-center items-center gap-2 transition-all ${
-              activeTab === 'history' 
-                ? 'bg-stone-800 dark:bg-stone-700 text-white shadow-md' 
-                : 'text-stone-500 dark:text-stone-400 hover:bg-stone-50 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-200'
-            }`}
-          >
-            <History className="w-4 h-4" /> 歷史與校正
-          </button>
-        </nav>
-
-        {/* Tab Content */}
-        <div className="transition-opacity duration-300">
-          {isLoadingData ? (
-             <div className="flex justify-center items-center py-20 text-stone-400 gap-2">
-                <RefreshCcw className="animate-spin w-6 h-6" /> 正在同步雲端資料...
-             </div>
-          ) : (
-            <>
-              {/* Plan Tab */}
-              <div className={activeTab === 'plan' ? 'block' : 'hidden'}>
-                <ScheduleEditor 
-                  onStartFiring={handleStartFiring} 
-                  calibrationFactor={calibration.factor}
-                  isDarkMode={isDarkMode}
-                />
-              </div>
-
-              {/* Monitor Tab - Persist component if running */}
-              {activeSchedule && startTime && (
-                <div className={activeTab === 'monitor' ? 'block' : 'hidden'}>
-                  <ActiveFiring 
-                    schedule={activeSchedule} 
-                    startTime={startTime} 
-                    onFinish={handleFinishFiring}
-                    onCancel={handleCancelFiring}
-                    isDarkMode={isDarkMode}
-                  />
-                </div>
-              )}
-              
-              {/* Fallback msg if no active firing but tab selected (edge case) */}
-              {activeTab === 'monitor' && (!activeSchedule || !startTime) && (
-                 <div className="text-center py-20 text-stone-500 dark:text-stone-400 border-2 border-dashed border-stone-200 dark:border-stone-800 rounded-xl">無進行中的燒製</div>
-              )}
-
-              {/* History Tab */}
-              <div className={activeTab === 'history' ? 'block' : 'hidden'}>
-                <HistoryLogView 
-                  logs={logs} 
-                  calibration={calibration} 
-                  onUpdateCalibration={handleUpdateCalibration} 
-                  isDarkMode={isDarkMode}
-                />
-              </div>
-            </>
-          )}
-        </div>
-      </main>
-
-      <footer className="py-6 text-center text-stone-400 dark:text-stone-600 text-xs transition-colors">
-        &copy; {new Date().getFullYear()} Youzih.KilnMaster AI. 資料同步至 Google.
-      </footer>
-    </div>
+            {/* 處理未知路徑，導向首頁 */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </KilnProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 

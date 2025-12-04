@@ -22,7 +22,6 @@ const SHEET_LOGS = 'Logs';
 const SHEET_CALIBRATION = 'Calibration';
 const SHEET_USERS = 'Users';
 
-// 初始化試算表 (如果第一次使用)
 function setupSpreadsheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   
@@ -30,13 +29,12 @@ function setupSpreadsheet() {
   let logsSheet = ss.getSheetByName(SHEET_LOGS);
   if (!logsSheet) {
     logsSheet = ss.insertSheet(SHEET_LOGS);
-    // 欄位順序：ID, 排程名稱, 日期, 預估時間, 理論時間, 實際時間, 陶土重量, 結果, 備註
     logsSheet.appendRow(['ID', 'Schedule Name', 'Date', 'Predicted Duration', 'Theoretical Duration', 'Actual Duration', 'Clay Weight', 'Outcome', 'Notes']);
   } else {
     // 檢查並新增缺少的欄位 (向後相容)
     const headers = logsSheet.getRange(1, 1, 1, logsSheet.getLastColumn()).getValues()[0];
     if (headers.indexOf('Theoretical Duration') === -1) logsSheet.getRange(1, headers.length + 1).setValue('Theoretical Duration');
-    // 重新讀取 headers 因為剛可能加了一欄
+    
     const updatedHeaders = logsSheet.getRange(1, 1, 1, logsSheet.getLastColumn()).getValues()[0];
     if (updatedHeaders.indexOf('Clay Weight') === -1) logsSheet.getRange(1, updatedHeaders.length + 1).setValue('Clay Weight');
   }
@@ -46,16 +44,22 @@ function setupSpreadsheet() {
   if (!calSheet) {
     calSheet = ss.insertSheet(SHEET_CALIBRATION);
     calSheet.appendRow(['Factor', 'Advice', 'Last Updated']);
-    calSheet.appendRow([1.0, '初始設定', new Date()]); // 預設值
+    calSheet.appendRow([1.0, '初始設定', new Date()]);
   }
 
   // 3. 設定 Users 工作表
   let userSheet = ss.getSheetByName(SHEET_USERS);
   if (!userSheet) {
     userSheet = ss.insertSheet(SHEET_USERS);
-    userSheet.appendRow(['Username', 'PasswordHash']); // 改為儲存 Hash
-    // 預設 admin/admin123 的 SHA-256 Hash
-    userSheet.appendRow(['admin', 'a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3']);
+    // [修改] 新增 DiscordWebhook 欄位
+    userSheet.appendRow(['Username', 'PasswordHash', 'DiscordWebhook']); 
+    userSheet.appendRow(['admin', 'a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3', '']);
+  } else {
+    // [新增] 檢查舊版 Users 表是否缺少 DiscordWebhook 欄位，若缺少則補上
+    const headers = userSheet.getRange(1, 1, 1, userSheet.getLastColumn()).getValues()[0];
+    if (headers.indexOf('DiscordWebhook') === -1) {
+      userSheet.getRange(1, headers.length + 1).setValue('DiscordWebhook');
+    }
   }
 }
 
@@ -65,7 +69,6 @@ function doPost(e) {
     const action = data.action;
 
     if (action === 'login') {
-      // 這裡接收的 password 已經是前端 Hash 過的字串
       return handleLogin(data.username, data.password);
     }
     
@@ -80,6 +83,15 @@ function doPost(e) {
       return saveCalibration(data.payload);
     }
 
+    // [新增] 儲存使用者設定 (Webhook)
+    if (action === 'saveSettings') {
+      return saveSettings(data.username, data.webhook);
+    }
+
+    if (action === 'sendDiscord') {
+      return sendDiscord(data.url, data.message);
+    }
+
     return responseJSON({ status: 'error', message: 'Invalid action' });
 
   } catch (error) {
@@ -89,9 +101,11 @@ function doPost(e) {
 
 function doGet(e) {
   const action = e.parameter.action;
+  
   if (action === 'getData') {
     return getCloudData();
   }
+  
   return responseJSON({ status: 'success', message: 'KilnMaster AI API is running' });
 }
 
@@ -101,13 +115,31 @@ function handleLogin(username, passwordHash) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
   
+  // 跳過標題列
   for (let i = 1; i < data.length; i++) {
-    // 直接比對 Hash 值
     if (data[i][0] == username && data[i][1] == passwordHash) {
-      return responseJSON({ status: 'success' });
+      // [修改] 登入成功時，讀取並回傳 Webhook (假設在第 3 欄)
+      const webhook = (data[i].length > 2) ? data[i][2] : '';
+      return responseJSON({ status: 'success', webhook: webhook });
     }
   }
   return responseJSON({ status: 'error', message: 'Invalid credentials' });
+}
+
+// [新增] 儲存設定函式
+function saveSettings(username, webhook) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  const data = sheet.getDataRange().getValues();
+  
+  // 尋找對應的使用者並更新 Webhook
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] == username) {
+      // 更新第 3 欄 (DiscordWebhook)
+      sheet.getRange(i + 1, 3).setValue(webhook);
+      return responseJSON({ status: 'success' });
+    }
+  }
+  return responseJSON({ status: 'error', message: 'User not found' });
 }
 
 function getCloudData() {
@@ -118,12 +150,12 @@ function getCloudData() {
   const logsData = logsSheet.getDataRange().getValues();
   const headers = logsData[0];
   const logs = [];
+  
   const colMap = {};
   headers.forEach((h, i) => colMap[h] = i);
 
   for (let i = 1; i < logsData.length; i++) {
     const row = logsData[i];
-    // 簡單防呆：確保日期存在
     if (row[colMap['Date']]) {
       logs.push({
         id: row[colMap['ID']],
@@ -140,8 +172,8 @@ function getCloudData() {
   }
 
   const calData = calSheet.getDataRange().getValues();
-  const lastCal = calData.length > 1 ? calData[calData.length - 1] : [1.0, 'No Data'];
-  
+  const lastCal = calData.length > 1 ? calData[calData.length - 1] : [1.0, 'Initial', new Date()];
+
   return responseJSON({ 
     status: 'success', 
     data: { 
@@ -156,13 +188,14 @@ function getCloudData() {
 
 function saveLog(log) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_LOGS);
-  setupSpreadsheet(); // 確保欄位同步
+  setupSpreadsheet();
   
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const colMap = {};
   headers.forEach((h, i) => colMap[h] = i);
 
   const newRow = new Array(headers.length).fill('');
+
   newRow[colMap['ID']] = log.id;
   newRow[colMap['Schedule Name']] = log.scheduleName;
   newRow[colMap['Date']] = log.date;
@@ -181,6 +214,26 @@ function saveCalibration(cal) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_CALIBRATION);
   sheet.appendRow([cal.factor, cal.advice, new Date()]);
   return responseJSON({ status: 'success' });
+}
+
+function sendDiscord(webhookUrl, message) {
+  try {
+    const payload = JSON.stringify({
+      content: message
+    });
+
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: payload,
+      muteHttpExceptions: true
+    };
+
+    UrlFetchApp.fetch(webhookUrl, options);
+    return responseJSON({ status: 'success' });
+  } catch (e) {
+    return responseJSON({ status: 'error', message: e.toString() });
+  }
 }
 
 // --- Helpers ---

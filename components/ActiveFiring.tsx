@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { FiringSchedule, calculateSchedulePoints, FiringLog } from '../types';
-import { Bell, BellOff, XCircle, CheckCircle, Thermometer, Settings, Plus, Trash2, Zap, ZapOff } from 'lucide-react';
+import { Bell, BellOff, XCircle, CheckCircle, Thermometer, Settings, Plus, Trash2, Zap, ZapOff, MessageSquare } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
+import { sendDiscordMessage } from '../services/sheetService';
 
 interface Props {
   schedule: FiringSchedule;
@@ -18,14 +19,15 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   const [notes, setNotes] = useState('');
   const [outcome, setOutcome] = useState<FiringLog['outcome']>('perfect');
   
-  // Wake Lock State (螢幕恆亮狀態)
+  // Wake Lock State
   const [wakeLockActive, setWakeLockActive] = useState(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
-  // Notification Settings
+  // Notification & Discord Settings
   const [showSettings, setShowSettings] = useState(false);
   const [thresholds, setThresholds] = useState<number[]>([50, 75, 90]);
   const [newThreshold, setNewThreshold] = useState('');
+  const [discordUrl, setDiscordUrl] = useState(() => localStorage.getItem('kiln_discord_webhook') || '');
   
   // Track fired notifications
   const firedThresholdsRef = useRef<Set<number>>(new Set());
@@ -33,7 +35,10 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   
   const totalEstimatedMs = schedule.estimatedDurationMinutes * 60 * 1000;
   
-  // --- Wake Lock Logic (新增功能: 防止螢幕休眠) ---
+  // 取得 Script URL 用於發送 Discord (假設儲存在 localStorage)
+  const scriptUrl = localStorage.getItem('kiln_script_url') || '';
+  
+  // --- Wake Lock Logic ---
   useEffect(() => {
     const requestWakeLock = async () => {
       try {
@@ -70,7 +75,7 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
     };
   }, []);
 
-  // --- Temperature Calculation Logic ---
+  // --- Temperature Calculation ---
   const getCurrentTemp = (elapsedMs: number) => {
     const elapsedMinutes = elapsedMs / 60000;
     let currentT = 25;
@@ -98,6 +103,7 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
     return currentT;
   };
 
+  // --- Main Interval Loop ---
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -108,28 +114,35 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
       const remainingMs = totalEstimatedMs - diff;
       const fifteenMinsMs = 15 * 60 * 1000;
 
-      if (notificationsEnabled) {
-        if (remainingMs > 0 && remainingMs <= fifteenMinsMs && !fired15MinRef.current) {
-           new Notification("KilnMaster 通知", { body: "燒製即將完成（約剩餘 15 分鐘）。" });
-           fired15MinRef.current = true;
-        }
-
-        thresholds.forEach(t => {
-            if (currentProgress >= t && !firedThresholdsRef.current.has(t)) {
-                const temp = getCurrentTemp(diff);
-                new Notification("KilnMaster 進度通知", { 
-                    body: `燒製進度已達 ${t}% (目前溫度約 ${temp}°C)` 
-                });
-                firedThresholdsRef.current.add(t);
-            }
-        });
+      // 1. 倒數 15 分鐘通知
+      if (remainingMs > 0 && remainingMs <= fifteenMinsMs && !fired15MinRef.current) {
+         const msg = `🔥 KilnMaster 提醒：${schedule.name} 燒製即將完成（約剩餘 15 分鐘）。`;
+         
+         if (notificationsEnabled) new Notification("KilnMaster 通知", { body: msg });
+         if (discordUrl) sendDiscordMessage(scriptUrl, discordUrl, msg);
+         
+         fired15MinRef.current = true;
       }
+
+      // 2. 進度百分比通知
+      thresholds.forEach(t => {
+          if (currentProgress >= t && !firedThresholdsRef.current.has(t)) {
+              const temp = getCurrentTemp(diff);
+              const msg = `🌡️ KilnMaster 進度：${schedule.name} 已達 ${t}% (目前溫度約 ${temp}°C)`;
+              
+              if (notificationsEnabled) new Notification("KilnMaster 進度通知", { body: msg });
+              if (discordUrl) sendDiscordMessage(scriptUrl, discordUrl, msg);
+              
+              firedThresholdsRef.current.add(t);
+          }
+      });
 
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [startTime, totalEstimatedMs, notificationsEnabled, thresholds]);
+  }, [startTime, totalEstimatedMs, notificationsEnabled, thresholds, discordUrl, schedule.name, scriptUrl]);
 
+  // --- Handlers ---
   const requestNotification = () => {
     if (!("Notification" in window)) {
       alert("此瀏覽器不支援桌面通知");
@@ -142,6 +155,12 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
         }
       });
     }
+  };
+
+  const handleDiscordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const url = e.target.value;
+      setDiscordUrl(url);
+      localStorage.setItem('kiln_discord_webhook', url);
   };
 
   const handleAddThreshold = () => {
@@ -184,6 +203,10 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   };
 
   const handleComplete = () => {
+    // 燒製完成通知
+    const msg = `✅ KilnMaster：${schedule.name} 燒製已紀錄完成。結果：${outcome}`;
+    if (discordUrl) sendDiscordMessage(scriptUrl, discordUrl, msg);
+
     onFinish({
         actualDuration: Math.round(elapsed / 60000),
         outcome,
@@ -194,7 +217,7 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
   // Chart Colors
   const chartGridColor = isDarkMode ? '#44403c' : '#e5e7eb';
   const chartAxisColor = isDarkMode ? '#a8a29e' : '#9ca3af';
-  const chartLineColor = isDarkMode ? '#78716c' : '#9ca3af'; // Slightly darker in light mode as requested, visible in dark
+  const chartLineColor = isDarkMode ? '#78716c' : '#9ca3af';
   const chartTooltipBg = isDarkMode ? '#292524' : '#fff';
   const chartTooltipBorder = isDarkMode ? '#57534e' : '#e5e7eb';
 
@@ -250,7 +273,7 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
                         onClick={handleComplete}
                         className="flex-1 py-3 bg-clay-600 hover:bg-clay-700 text-white rounded-lg font-bold shadow-lg"
                     >
-                        儲存紀錄
+                        儲存並通知
                     </button>
                 </div>
             </div>
@@ -282,7 +305,6 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
           </div>
           
           <div className="flex gap-2 self-end md:self-auto relative">
-             {/* Notification Settings Button */}
              <button 
               onClick={() => setShowSettings(!showSettings)}
               className={`p-2 rounded-full transition-colors ${showSettings ? 'bg-stone-200 dark:bg-stone-700 text-stone-700 dark:text-stone-200' : 'bg-stone-100 dark:bg-stone-800 text-stone-400 dark:text-stone-500 hover:bg-stone-200 dark:hover:bg-stone-700'}`}
@@ -291,7 +313,6 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
               <Settings className="w-6 h-6" />
             </button>
 
-            {/* Notification Toggle Button */}
             <button 
               onClick={requestNotification}
               className={`p-2 rounded-full transition-colors ${notificationsEnabled ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' : 'bg-stone-100 dark:bg-stone-800 text-stone-400 dark:text-stone-500 hover:bg-stone-200 dark:hover:bg-stone-700'}`}
@@ -302,11 +323,26 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
 
             {/* Settings Popover */}
             {showSettings && (
-                <div className="absolute top-12 right-0 w-72 bg-white dark:bg-stone-800 rounded-xl shadow-xl border border-stone-100 dark:border-stone-700 p-4 z-20">
+                <div className="absolute top-12 right-0 w-80 bg-white dark:bg-stone-800 rounded-xl shadow-xl border border-stone-100 dark:border-stone-700 p-4 z-20">
                     <h3 className="text-sm font-bold text-stone-800 dark:text-stone-100 mb-3 flex items-center gap-2">
-                        <Bell className="w-4 h-4" /> 自訂進度通知
+                        <Bell className="w-4 h-4" /> 通知設定
                     </h3>
                     
+                    {/* Discord Input */}
+                    <div className="mb-4 pb-4 border-b border-stone-100 dark:border-stone-700">
+                        <label className="text-xs font-bold text-stone-500 dark:text-stone-400 uppercase mb-1 flex items-center gap-1">
+                            <MessageSquare className="w-3 h-3" /> Discord Webhook
+                        </label>
+                        <input 
+                            type="password" 
+                            value={discordUrl}
+                            onChange={handleDiscordChange}
+                            placeholder="https://discord.com/api/webhooks/..."
+                            className="w-full p-2 text-xs border border-stone-200 dark:border-stone-600 rounded bg-stone-50 dark:bg-stone-900 text-stone-800 dark:text-stone-200"
+                        />
+                        <p className="text-[10px] text-stone-400 mt-1">貼上 Webhook 網址以接收即時通知</p>
+                    </div>
+
                     <div className="flex gap-2 mb-4">
                         <div className="relative flex-1">
                             <input 
@@ -339,10 +375,6 @@ const ActiveFiring: React.FC<Props> = ({ schedule, startTime, onFinish, onCancel
                                 </button>
                             </div>
                         ))}
-                        <div className="flex justify-between items-center bg-stone-50 dark:bg-stone-700/50 p-2 rounded-lg text-sm border border-stone-100 dark:border-stone-700 opacity-75">
-                             <span className="font-mono font-bold text-clay-700 dark:text-clay-300">倒數15分</span>
-                             <span className="text-xs text-stone-400">(預設)</span>
-                        </div>
                     </div>
                 </div>
             )}

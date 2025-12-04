@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Trash2, Play } from 'lucide-react';
+import { Plus, Trash2, Play, BookOpen, Clock } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { FiringSchedule, FiringSegment, createEmptySegment, calculateSchedulePoints, calculateTheoreticalDuration } from '../types';
 
@@ -9,22 +9,52 @@ interface Props {
   isDarkMode?: boolean;
 }
 
+const TEMPLATES: Record<string, { name: string, segments: FiringSegment[] }> = {
+  bisque: {
+    name: "標準素燒 (800°C)",
+    segments: [
+      { id: 't1', type: 'ramp', rate: 100, targetTemp: 600 },
+      { id: 't2', type: 'ramp', rate: 150, targetTemp: 800 },
+      { id: 't3', type: 'hold', targetTemp: 800, holdTime: 10 }
+    ]
+  },
+  glaze: {
+    name: "標準釉燒 (1230°C)",
+    segments: [
+      { id: 'g1', type: 'ramp', rate: 150, targetTemp: 1000 },
+      { id: 'g2', type: 'ramp', rate: 100, targetTemp: 1230 },
+      { id: 'g3', type: 'hold', targetTemp: 1230, holdTime: 20 }
+    ]
+  },
+  slow_dry: {
+    name: "慢速烘乾 (120°C)",
+    segments: [
+      { id: 'd1', type: 'ramp', rate: 60, targetTemp: 120 },
+      { id: 'd2', type: 'hold', targetTemp: 120, holdTime: 60 }
+    ]
+  }
+};
+
 const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isDarkMode = false }) => {
   const [segments, setSegments] = useState<FiringSegment[]>([createEmptySegment()]);
   const [name, setName] = useState('新排程');
   const [clayWeight, setClayWeight] = useState<number>(0);
+  const [showTemplates, setShowTemplates] = useState(false);
 
-  // Use shared helper for consistency
   const rawMinutes = calculateTheoreticalDuration(segments);
-  // Base calibration + Weight compensation (approx. 1.5% per kg)
   const weightFactor = 1 + (clayWeight * 0.015);
   const adjustedMinutes = Math.round(rawMinutes * calibrationFactor * weightFactor);
+  
+  const estimatedEndTime = useMemo(() => {
+    const now = new Date();
+    const end = new Date(now.getTime() + adjustedMinutes * 60000);
+    return end;
+  }, [adjustedMinutes]);
 
-  // Generate chart data
   const chartData = useMemo(() => {
     const points = calculateSchedulePoints(segments);
     return points.map(p => ({
-      time: Math.round((p.time / 60) * 10) / 10, // Convert minutes to hours for display
+      time: Math.round((p.time / 60) * 10) / 10,
       temp: p.temp
     }));
   }, [segments]);
@@ -41,6 +71,14 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
     setSegments(segments.map(s => s.id === id ? { ...s, [field]: value } : s));
   };
 
+  const loadTemplate = (key: string) => {
+    const t = TEMPLATES[key];
+    const newSegs = t.segments.map(s => ({...s, id: crypto.randomUUID()}));
+    setSegments(newSegs);
+    setName(t.name);
+    setShowTemplates(false);
+  };
+
   const handleStart = () => {
     onStartFiring({
       id: crypto.randomUUID(),
@@ -51,7 +89,6 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
     });
   };
 
-  // Dark mode chart colors
   const chartGridColor = isDarkMode ? '#44403c' : '#e7e5e4';
   const chartAxisColor = isDarkMode ? '#a8a29e' : '#a8a29e';
   const chartTooltipBg = isDarkMode ? '#292524' : '#fff';
@@ -63,20 +100,42 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
       {/* Left Column: Editor */}
       <div className="lg:col-span-2 space-y-6">
         <div className="bg-white dark:bg-stone-900 rounded-xl shadow-sm border border-stone-200 dark:border-stone-800 p-6 transition-colors">
-          <div className="border-b border-stone-100 dark:border-stone-800 pb-4 mb-4">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-stone-800 dark:text-stone-100">手動編輯排程</h2>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="text-right font-medium text-stone-600 dark:text-stone-300 bg-transparent border-b border-transparent hover:border-stone-300 dark:hover:border-stone-600 focus:border-clay-500 focus:outline-none px-2 w-48 md:w-auto transition-colors"
-              />
+          <div className="flex justify-between items-center mb-6 pb-4 border-b border-stone-100 dark:border-stone-800">
+            <h2 className="text-xl font-bold text-stone-800 dark:text-stone-100">編輯排程</h2>
+            
+            <div className="flex gap-2">
+                <div className="relative">
+                    <button 
+                        onClick={() => setShowTemplates(!showTemplates)}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-stone-600 dark:text-stone-300 bg-stone-100 dark:bg-stone-800 rounded-lg hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors"
+                    >
+                        <BookOpen className="w-4 h-4" /> 載入模板
+                    </button>
+                    {showTemplates && (
+                        <div className="absolute right-0 top-10 w-48 bg-white dark:bg-stone-800 rounded-xl shadow-xl border border-stone-200 dark:border-stone-700 z-10 overflow-hidden">
+                            {Object.entries(TEMPLATES).map(([key, t]) => (
+                                <button
+                                    key={key}
+                                    onClick={() => loadTemplate(key)}
+                                    className="w-full text-left px-4 py-3 text-sm text-stone-700 dark:text-stone-300 hover:bg-clay-50 dark:hover:bg-stone-700 hover:text-clay-700 dark:hover:text-clay-400 transition-colors border-b border-stone-100 dark:border-stone-700 last:border-0"
+                                >
+                                    {t.name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="text-right font-medium text-stone-600 dark:text-stone-300 bg-transparent border-b border-transparent hover:border-stone-300 focus:border-clay-500 focus:outline-none px-2 w-40 transition-colors"
+                />
             </div>
+          </div>
 
-            <div className="space-y-4 mb-6">
+          <div className="space-y-4 mb-6">
               {/* Global Settings */}
               <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800 mb-4">
-                <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase mb-2">全域設定</h3>
                 <div className="flex items-center gap-4">
                    <div className="flex-1">
                       <label className="block text-xs font-semibold text-stone-500 dark:text-stone-400 mb-1">預估陶土總重 (kg)</label>
@@ -87,28 +146,13 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
                         value={clayWeight}
                         onChange={(e) => setClayWeight(Math.max(0, Number(e.target.value)))}
                         className="w-full p-2 rounded border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm focus:ring-1 focus:ring-clay-500 focus:outline-none"
-                        placeholder="0.0"
                       />
-                      <p className="text-[10px] text-stone-400 mt-1">重量將影響預估燒製時間 (+1.5%/kg)</p>
                    </div>
-                </div>
-                
-                {/* Weight Calculation Info */}
-                <div className="mt-3 text-[10px] text-stone-500 dark:text-stone-400 bg-white dark:bg-stone-800 p-3 rounded border border-stone-200 dark:border-stone-700">
-                  <p className="font-bold mb-1 text-stone-600 dark:text-stone-300">時間估算公式：</p>
-                  <div className="font-mono bg-stone-100 dark:bg-stone-900 p-1 rounded mb-2 text-center text-stone-600 dark:text-stone-400">
-                    理論時間 × 歷史校正 × (1 + 重量 × 1.5%)
-                  </div>
-                  <p>
-                    • <span className="font-semibold">理論時間：</span>依據升溫速率與持溫時間計算的物理基礎時間。<br/>
-                    • <span className="font-semibold">歷史校正：</span>根據過去燒製紀錄自動調整的偏差係數。<br/>
-                    • <span className="font-semibold">重量補償：</span>每增加 1kg 陶土，因熱容增加，燒製時間約延長 1.5%。此參數將隨歷史數據累積自動優化。
-                  </p>
                 </div>
               </div>
 
               {segments.map((seg, idx) => (
-                <div key={seg.id} className="flex flex-wrap md:flex-nowrap items-end gap-3 p-4 bg-stone-50 dark:bg-stone-800/50 rounded-lg border border-stone-200 dark:border-stone-700 transition-colors">
+                <div key={seg.id} className="flex flex-wrap md:flex-nowrap items-end gap-3 p-4 bg-stone-50 dark:bg-stone-800/50 rounded-lg border border-stone-200 dark:border-stone-700 transition-colors group">
                   <div className="w-8 font-bold text-stone-400 text-sm pt-3">#{idx + 1}</div>
                   
                   <div className="flex-1 min-w-[100px]">
@@ -159,7 +203,7 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
 
                   <button
                     onClick={() => handleRemoveSegment(seg.id)}
-                    className="p-2 text-stone-400 hover:text-red-500 transition-colors"
+                    className="p-2 text-stone-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                     title="移除區段"
                   >
                     <Trash2 className="w-5 h-5" />
@@ -174,7 +218,6 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
             >
               <Plus className="w-5 h-5" /> 新增區段
             </button>
-          </div>
         </div>
       </div>
 
@@ -232,18 +275,19 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
         <div className="bg-stone-900 dark:bg-stone-950 text-white p-6 rounded-xl shadow-lg sticky top-6 border border-stone-800">
           <div className="mb-6">
             <div className="text-stone-300 dark:text-stone-400 text-sm mb-1">預估總時間</div>
-            <div className="text-4xl font-bold font-mono">
+            <div className="text-4xl font-bold font-mono mb-2">
               {Math.floor(adjustedMinutes / 60)}<span className="text-xl">小時</span> {adjustedMinutes % 60}<span className="text-xl">分</span>
             </div>
-            {calibrationFactor !== 1 && (
-              <div className="text-xs text-yellow-400 mt-2 bg-yellow-400/10 p-2 rounded">
+            
+            <div className="flex items-center gap-2 text-sm text-green-400 bg-green-900/20 py-1 px-2 rounded w-fit">
+                 <Clock className="w-4 h-4" />
+                 預計結束：{estimatedEndTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            </div>
+
+            {(calibrationFactor !== 1 || clayWeight > 0) && (
+              <div className="text-xs text-yellow-400 mt-3 bg-yellow-400/10 p-2 rounded">
                 *已包含 {Math.round((calibrationFactor - 1) * 100)}% 歷史校正
                 {clayWeight > 0 && ` + ${Math.round(clayWeight * 1.5)}% 重量補償`}
-              </div>
-            )}
-            {calibrationFactor === 1 && clayWeight > 0 && (
-               <div className="text-xs text-yellow-400 mt-2 bg-yellow-400/10 p-2 rounded">
-                *已包含 {Math.round(clayWeight * 1.5)}% 重量補償
               </div>
             )}
           </div>
