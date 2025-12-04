@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { loginToSheet, saveSettingsToSheet } from '../services/sheetService';
+import { loginToSheet, saveGlobalSetting } from '../services/sheetService'; // [修正] 改用 saveGlobalSetting
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  isLoading: boolean; // 新增：載入中狀態
+  isLoading: boolean;
   scriptUrl: string;
   username: string;
   discordWebhook: string;
@@ -16,7 +16,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true); // 預設為載入中
+  const [isLoading, setIsLoading] = useState(true);
   const [scriptUrl, setScriptUrl] = useState('');
   const [username, setUsername] = useState('');
   const [discordWebhook, setDiscordWebhook] = useState('');
@@ -38,7 +38,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.removeItem('kiln_auth_data');
       }
     }
-    setIsLoading(false); // 檢查完畢
+    setIsLoading(false);
   }, []);
 
   const login = async (url: string, user: string, passHash: string) => {
@@ -56,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         webhook: newWebhook
       }));
-      localStorage.setItem('kiln_script_url', url); // 保留原本的 url cache
+      localStorage.setItem('kiln_script_url', url);
     }
     return success;
   };
@@ -65,7 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthenticated(false);
     setUsername('');
     setDiscordWebhook('');
-    localStorage.removeItem('kiln_auth_data'); // 清除登入資訊
+    localStorage.removeItem('kiln_auth_data');
   };
 
   const updateWebhook = async (url: string) => {
@@ -80,8 +80,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('kiln_auth_data', JSON.stringify({ ...data, webhook: url }));
     }
 
-    if (scriptUrl && username) {
-      const success = await saveSettingsToSheet(scriptUrl, username, url);
+    if (scriptUrl) {
+      // [修正] 改用 saveGlobalSetting，並指定 Key 為 'DiscordWebhook'
+      const success = await saveGlobalSetting(scriptUrl, 'DiscordWebhook', url);
+      
       if (!success) {
         // 如果失敗則回滾
         setDiscordWebhook(oldWebhook);
