@@ -351,6 +351,7 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
             >
               <Plus className="w-5 h-5" /> 手動新增區段
             </button>
+          </div>
         </div>
       </div>
 
