@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FiringLog, CalibrationResult, outcomeMap } from '../types';
+import { FiringLog, CalibrationResult, outcomeMap, sampleTypeLabels, FiringStageLabels } from '../types';
 import { calculateLocalCalibration } from '../services/calibrationService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Brush } from 'recharts';
 import { Calculator, History as HistoryIcon, ArrowUpRight, ArrowDownRight, Download } from 'lucide-react';
@@ -30,7 +30,8 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
       ["目前校正係數", calibration.factor.toString()],
       ["系統建議", calibration.advice.replace(/[\n\r]+/g, ' ')]
     ];
-    const headers = ["排程名稱", "日期", "預估時間(分鐘)", "實際時間(分鐘)", "誤差(分鐘)", "結果", "備註"];
+    
+    const headers = ["排程名稱", "日期", "燒製階段", "樣品類型", "預估時間(分鐘)", "實際時間(分鐘)", "誤差(分鐘)", "結果", "備註"];
     const sortedLogs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     
     const dataRows = sortedLogs.map(log => {
@@ -38,6 +39,8 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
         return [
             log.scheduleName,
             new Date(log.date).toLocaleString('zh-TW'),
+            log.firingStage ? FiringStageLabels[log.firingStage] : '未知',
+            log.sampleType ? sampleTypeLabels[log.sampleType] : '標準',
             log.predictedDuration,
             log.actualDuration,
             diff,
@@ -85,7 +88,6 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
 
   return (
     <div className="space-y-8">
-      {/* Calibration Card */}
       <div className="bg-gradient-to-br from-stone-800 to-stone-900 dark:from-stone-900 dark:to-black rounded-xl p-6 text-white shadow-xl">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
@@ -115,9 +117,7 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
         )}
       </div>
 
-      {/* Chart */}
       {logs.length > 0 ? (
-        // 修改這裡：加入 inline style height
         <div className="bg-white dark:bg-stone-900 p-6 rounded-xl border border-stone-200 dark:border-stone-800 shadow-sm h-[350px] transition-colors" style={{ height: '350px' }}>
           <h3 className="text-lg font-bold text-stone-800 dark:text-stone-100 mb-4">預估 vs 實際時間 (小時)</h3>
           <ResponsiveContainer width="100%" height="100%">
@@ -148,7 +148,6 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
         </div>
       )}
 
-      {/* List */}
       <div className="space-y-4">
          <div className="flex justify-between items-center">
             <h3 className="text-lg font-bold text-stone-800 dark:text-stone-100 flex items-center gap-2">
@@ -169,6 +168,19 @@ const HistoryLog: React.FC<Props> = ({ logs, calibration, onUpdateCalibration, i
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                     <div className="font-bold text-stone-800 dark:text-stone-100">{log.scheduleName}</div>
+                    
+                    {log.firingStage && log.firingStage !== 'uncertain' && (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 border border-blue-100 dark:border-blue-800">
+                            {FiringStageLabels[log.firingStage].split(' ')[0]}
+                        </span>
+                    )}
+                    
+                    {log.sampleType && (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-stone-100 dark:bg-stone-800 text-stone-500 border border-stone-200 dark:border-stone-700">
+                            {sampleTypeLabels[log.sampleType].split(' ')[0]}
+                        </span>
+                    )}
+
                     <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
                         log.outcome === 'perfect' ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' :
                         (log.outcome === 'error' || log.outcome === 'failure') ? 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400' :
