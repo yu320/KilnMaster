@@ -1,20 +1,27 @@
-
 import React, { useState } from 'react';
 import { Flame, Lock, User, Link2, Loader2, Moon, Sun } from 'lucide-react';
 
 interface Props {
-  onLogin: (scriptUrl: string, username: string, password: string) => Promise<boolean>;
+  onLogin: (scriptUrl: string, username: string, passwordHash: string) => Promise<boolean>;
   isDarkMode?: boolean;
   onToggleDarkMode?: () => void;
 }
 
 const Login: React.FC<Props> = ({ onLogin, isDarkMode = false, onToggleDarkMode }) => {
-  // Check local storage for previous script URL to save typing
   const [scriptUrl, setScriptUrl] = useState(import.meta.env.VITE_API_URL || localStorage.getItem('kiln_script_url') || '');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // 密碼雜湊函數
+  const hashPassword = async (pwd: string): Promise<string> => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(pwd);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,14 +35,18 @@ const Login: React.FC<Props> = ({ onLogin, isDarkMode = false, onToggleDarkMode 
     }
 
     try {
-      const success = await onLogin(scriptUrl, username, password);
+      // 傳送前先進行雜湊
+      const hashedPassword = await hashPassword(password);
+      const success = await onLogin(scriptUrl, username, hashedPassword);
+      
       if (success) {
         localStorage.setItem('kiln_script_url', scriptUrl);
       } else {
         setError('登入失敗：帳號、密碼錯誤或網址無效');
       }
     } catch (err) {
-      setError('連線錯誤，請檢查網路或網址');
+      console.error(err);
+      setError('連線或加密錯誤');
     } finally {
       setIsLoading(false);
     }
@@ -43,12 +54,10 @@ const Login: React.FC<Props> = ({ onLogin, isDarkMode = false, onToggleDarkMode 
 
   return (
     <div className="min-h-screen bg-stone-100 dark:bg-stone-950 flex flex-col items-center justify-center p-4 transition-colors relative">
-      {/* Dark Mode Toggle */}
       {onToggleDarkMode && (
         <button
           onClick={onToggleDarkMode}
           className="absolute top-4 right-4 p-2 bg-white dark:bg-stone-900 rounded-full shadow-md text-stone-400 hover:text-clay-500 dark:text-stone-500 dark:hover:text-clay-400 transition-colors"
-          title={isDarkMode ? "切換亮色模式" : "切換深色模式"}
         >
           {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
         </button>
@@ -61,7 +70,7 @@ const Login: React.FC<Props> = ({ onLogin, isDarkMode = false, onToggleDarkMode 
            </div>
            <Flame className="w-12 h-12 text-clay-400 mx-auto mb-4" />
            <h1 className="text-2xl font-bold text-white">KilnMaster AI</h1>
-           <p className="text-stone-400 text-sm mt-1">請先登入以存取雲端資料庫</p>
+           <p className="text-stone-400 text-sm mt-1">安全雲端燒製管理系統</p>
         </div>
 
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
@@ -75,7 +84,7 @@ const Login: React.FC<Props> = ({ onLogin, isDarkMode = false, onToggleDarkMode 
             {!import.meta.env.VITE_API_URL && (
               <div>
                 <label className="block text-xs font-bold text-stone-500 dark:text-stone-400 uppercase mb-1">
-                  後台 API 網址 (Google Apps Script)
+                  API 網址
                 </label>
                 <div className="relative">
                   <Link2 className="absolute left-3 top-3 w-5 h-5 text-stone-400" />
@@ -83,7 +92,7 @@ const Login: React.FC<Props> = ({ onLogin, isDarkMode = false, onToggleDarkMode 
                     type="url"
                     value={scriptUrl}
                     onChange={(e) => setScriptUrl(e.target.value)}
-                    placeholder="https://script.google.com/macros/s/..."
+                    placeholder="https://script.google.com/..."
                     required
                     className="w-full pl-10 pr-4 py-2 border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 rounded-lg focus:ring-2 focus:ring-clay-500 focus:outline-none text-sm"
                   />
