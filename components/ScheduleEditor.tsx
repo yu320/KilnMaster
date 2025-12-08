@@ -340,7 +340,6 @@ const ScheduleEditor: React.FC<Props> = ({ onStartFiring, calibrationFactor, isD
                   ))}
             </div>
 
-
             <button
               onClick={handleAddSegment}
               disabled={!isManualEdit}
